@@ -43,7 +43,7 @@ export function CreateFolderButton({
       },
       {
         path: ["folderName"],
-        message: "A folder with this name already exists",
+        error: "A folder with this name already exists",
       },
     );
 
