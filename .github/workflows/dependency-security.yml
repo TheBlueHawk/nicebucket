@@ -1,0 +1,26 @@
+name: Dependency security scan
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/dependency-security.yml"
+      - "bun.lock"
+      - "src-tauri/Cargo.lock"
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  scan:
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2.7.1
+    with:
+      scan-args: |-
+        --lockfile=bun.lock
+        --lockfile=src-tauri/Cargo.lock
+      fail-on-vuln: false
