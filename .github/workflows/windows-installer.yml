@@ -1,0 +1,61 @@
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.2.20
+
+      - name: Verify release tag version
+        if: github.ref_type == 'tag'
+        run: |
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $bundleVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -ne "v$packageVersion" -or $packageVersion -ne $bundleVersion) {
+            throw "The release tag, package version, and installer version must match."
+          }
+
+      - name: Set up Rust
+        run: rustup update stable --no-self-update
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check frontend
+        run: |
+          bun run lint
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          bun run test
+
+      - name: Build Windows x64 NSIS installer
+        run: bun run tauri build --ci --target x86_64-pc-windows-msvc --bundles nsis -- --locked
+
+      - name: Write installer checksum
+        run: |
+          $bundles = @(Get-ChildItem src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis -Filter '*-setup.exe' -File)
+          if ($bundles.Count -ne 1) { throw "Expected exactly one NSIS installer." }
+          $installer = $bundles[0]
+          $digest = (Get-FileHash -Algorithm SHA256 $installer.FullName).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath "$($installer.FullName).sha256" -Value "$digest  $($installer.Name)" -Encoding ascii
+          Write-Host "Authenticode status: $((Get-AuthenticodeSignature $installer.FullName).Status)"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nicebucket-windows-x64
+          if-no-files-found: error
+          path: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe.sha256
